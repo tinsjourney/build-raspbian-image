@@ -59,6 +59,7 @@
 
 deb_mirror="http://archive.raspbian.org/raspbian"
 deb_local_mirror="http://localhost:3142/archive.raspbian.org/raspbian"
+deb_local_mirror=""
 
 if [ ${EUID} -ne 0 ]; then
   echo "this tool must be run as root"
@@ -76,7 +77,8 @@ if [ "${deb_local_mirror}" == "" ]; then
 fi
 
 bootsize="64M"
-deb_release="wheezy"
+deb_release="jessie"
+keyboard_layout="fr-latin9"
 
 relative_path=`dirname $0`
 
@@ -126,7 +128,6 @@ p
 w
 EOF
 
-
 if [ "${image}" != "" ]; then
   losetup -d ${device}
   device=`kpartx -va ${image} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1`
@@ -147,6 +148,7 @@ else
   fi
 fi
 
+partprobe
 mkfs.vfat ${bootp}
 mkfs.ext4 ${rootp}
 
@@ -168,7 +170,10 @@ mount -o bind ${delivery_path} ${rootfs}/usr/src/delivery
 
 cd ${rootfs}
 
-debootstrap --foreign --arch armhf ${deb_release} ${rootfs} ${deb_local_mirror}
+wget -O /tmp/raspbian.public.key https://archive.raspbian.org/raspbian.public.key
+gpg --import /tmp/raspbian.public.key
+
+debootstrap --keyring /root/.gnupg/pubring.gpg --foreign --arch armhf ${deb_release} ${rootfs} ${deb_local_mirror}
 cp /usr/bin/qemu-arm-static usr/bin/
 LANG=C chroot ${rootfs} /debootstrap/debootstrap --second-stage
 
@@ -177,10 +182,11 @@ mount ${bootp} ${bootfs}
 echo "deb ${deb_local_mirror} ${deb_release} main contrib non-free
 " > etc/apt/sources.list
 
-echo "dwc_otg.lpm_enable=0 console=ttyAMA0,115200 kgdboc=ttyAMA0,115200 console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 rootwait" > boot/cmdline.txt
+echo "+dwc_otg.lpm_enable=0 console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 cgroup-enable=memory swapaccount=1 elevator=deadline rootwait console=ttyAMA0,115200 kgdboc=ttyAMA0,115200" > boot/cmdline.txt
 
-echo "proc            /proc           proc    defaults        0       0
-/dev/mmcblk0p1  /boot           vfat    defaults        0       0
+echo "proc            /proc	proc	defaults		0	0
+/dev/mmcblk0p1	/boot	vfat	defaults		0	0
+/dev/mmcblk0p2	/	ext4	defaults,noatime	0	1
 " > etc/fstab
 
 echo "raspberrypi" > etc/hostname
@@ -188,16 +194,18 @@ echo "raspberrypi" > etc/hostname
 echo "auto lo
 iface lo inet loopback
 
-auto eth0
+allow-hotplug eth0
 iface eth0 inet dhcp
 " > etc/network/interfaces
 
 echo "vchiq
 snd_bcm2835
+bcm2708-rng
 " >> etc/modules
 
 echo "console-common	console-data/keymap/policy	select	Select keymap from full list
-console-common	console-data/keymap/full	select	us
+console-common  console-data/keymap/full        select  ${keyboard_layout}
+console-data    console-data/keymap/full        select  ${keyboard_layout}
 " > debconf.set
 
 echo "#!/bin/bash
@@ -205,15 +213,15 @@ debconf-set-selections /debconf.set
 rm -f /debconf.set
 
 cd /usr/src/delivery
-apt-get update
-apt-get -y install git-core binutils ca-certificates curl
+apt-get -qq update
+DEBIAN_FRONTEND=noninteractive apt-get -qq -o Dpkg::Options::="--force-confnew" -y install git-core binutils ca-certificates curl
 wget --continue https://raw.github.com/Hexxeh/rpi-update/master/rpi-update -O /usr/bin/rpi-update
 chmod +x /usr/bin/rpi-update
 mkdir -p /lib/modules/3.1.9+
 touch /boot/start.elf
 rpi-update
 
-apt-get -y install locales console-common ntp openssh-server less vim
+DEBIAN_FRONTEND=noninteractive apt-get -qq -o Dpkg::Options::="--force-confnew" -y install locales console-common ntp openssh-server less vim
 
 # execute install script at mounted external media (delivery contents folder)
 cd /usr/src/delivery
@@ -223,7 +231,7 @@ cd
 echo \"root:raspberry\" | chpasswd
 sed -i -e 's/KERNEL\!=\"eth\*|/KERNEL\!=\"/' /lib/udev/rules.d/75-persistent-net-generator.rules
 rm -f /etc/udev/rules.d/70-persistent-net.rules
-rm -f third-stage
+rm -f /third-stage
 " > third-stage
 chmod +x third-stage
 LANG=C chroot ${rootfs} /third-stage
@@ -234,8 +242,8 @@ echo "deb ${deb_mirror} ${deb_release} main contrib non-free
 echo "#!/bin/bash
 aptitude update
 aptitude clean
-apt-get clean
-rm -f cleanup
+apt-get -qq clean
+rm -f /cleanup
 " > cleanup
 chmod +x cleanup
 LANG=C chroot ${rootfs} /cleanup
@@ -249,7 +257,6 @@ sleep 15
 cd
 
 umount -l ${bootp}
-
 umount -l ${rootfs}/usr/src/delivery
 umount -l ${rootfs}/dev/pts
 umount -l ${rootfs}/dev
@@ -257,7 +264,10 @@ umount -l ${rootfs}/sys
 umount -l ${rootfs}/proc
 
 umount -l ${rootfs}
-umount -l ${rootp}
+
+# Kill apt-cacher-ng in order to remove all loop device
+sleep 10
+pkill apt-cacher-ng
 
 # Remove device mapper bindings. Avoids running out of loop devices if run repeatedly.
 dmsetup remove_all
@@ -265,7 +275,8 @@ dmsetup remove_all
 echo "finishing ${image}"
 
 if [ "${image}" != "" ]; then
-  kpartx -d ${image}
+  kpartx -d ${device}
+  losetup -d ${device}
   echo "created image ${image}"
 fi
 
