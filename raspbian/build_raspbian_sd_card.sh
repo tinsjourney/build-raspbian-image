@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash +x
 
 # build your own Raspberry Pi SD card
 #
@@ -58,8 +58,7 @@
 # apt-get install binfmt-support qemu qemu-user-static debootstrap kpartx lvm2 dosfstools
 
 deb_mirror="http://archive.raspbian.org/raspbian"
-deb_local_mirror="http://localhost:3142/archive.raspbian.org/raspbian"
-deb_local_mirror=""
+deb_local_mirror="http://unxprddeb01.fr.world.socgen/archive.raspbian.com/raspbian/"
 
 if [ ${EUID} -ne 0 ]; then
   echo "this tool must be run as root"
@@ -77,7 +76,7 @@ if [ "${deb_local_mirror}" == "" ]; then
 fi
 
 bootsize="64M"
-deb_release="jessie"
+deb_release="stable"
 keyboard_layout="fr-latin9"
 
 relative_path=`dirname $0`
@@ -131,6 +130,7 @@ EOF
 if [ "${image}" != "" ]; then
   losetup -d ${device}
   device=`kpartx -va ${image} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1`
+  dmsetup mknodes || exit 1
   device="/dev/mapper/${device}"
   bootp=${device}p1
   rootp=${device}p2
@@ -170,27 +170,35 @@ mount -o bind ${delivery_path} ${rootfs}/usr/src/delivery
 
 cd ${rootfs}
 
-wget -O /tmp/raspbian.public.key https://archive.raspbian.org/raspbian.public.key
+wget -O /tmp/raspbian.public.key http://unxprddeb01.fr.world.socgen/archive.raspbian.com/raspbian.public.key
 gpg --import /tmp/raspbian.public.key
 
+echo "### DeBootStraping ###"
 debootstrap --keyring /root/.gnupg/pubring.gpg --foreign --arch armhf ${deb_release} ${rootfs} ${deb_local_mirror}
 cp /usr/bin/qemu-arm-static usr/bin/
+mkdir -p usr/share/keyrings
+cp /usr/share/keyrings/debian-archive-keyring.gpg usr/share/keyrings/
 LANG=C chroot ${rootfs} /debootstrap/debootstrap --second-stage
 
 mount ${bootp} ${bootfs}
 
+echo "### Configuring APT ###"
 echo "deb ${deb_local_mirror} ${deb_release} main contrib non-free
 " > etc/apt/sources.list
 
+echo "### Configuring CMDLINE ###"
 echo "+dwc_otg.lpm_enable=0 console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 cgroup-enable=memory swapaccount=1 elevator=deadline rootwait console=ttyAMA0,115200 kgdboc=ttyAMA0,115200" > boot/cmdline.txt
 
+echo "### Configuring FSTAB ###"
 echo "proc            /proc	proc	defaults		0	0
 /dev/mmcblk0p1	/boot	vfat	defaults		0	0
 /dev/mmcblk0p2	/	ext4	defaults,noatime	0	1
 " > etc/fstab
 
+echo "### Configuring HOSTNAME ###"
 echo "raspberrypi" > etc/hostname
 
+echo "### NETWORK ###"
 echo "auto lo
 iface lo inet loopback
 
@@ -203,6 +211,7 @@ snd_bcm2835
 bcm2708-rng
 " >> etc/modules
 
+echo "### CONSOLE ###"
 echo "console-common	console-data/keymap/policy	select	Select keymap from full list
 console-common  console-data/keymap/full        select  ${keyboard_layout}
 console-data    console-data/keymap/full        select  ${keyboard_layout}
@@ -214,8 +223,9 @@ rm -f /debconf.set
 
 cd /usr/src/delivery
 apt-get -qq update
-DEBIAN_FRONTEND=noninteractive apt-get -qq -o Dpkg::Options::="--force-confnew" -y install git-core binutils ca-certificates curl
-wget --continue https://raw.github.com/Hexxeh/rpi-update/master/rpi-update -O /usr/bin/rpi-update
+DEBIAN_FRONTEND=noninteractive apt-get -qq -o Dpkg::Options::=\"--force-confnew\" -y install git-core binutils ca-certificates curl
+#wget --continue https://raw.github.com/Hexxeh/rpi-update/master/rpi-update -O /usr/bin/rpi-update
+wget --continue https://sgithub.fr.world.socgen/raw/GTSMKTSSB/rpi-update/master/rpi-update -O /usr/bin/rpi-update
 chmod +x /usr/bin/rpi-update
 mkdir -p /lib/modules/3.1.9+
 touch /boot/start.elf
@@ -276,6 +286,7 @@ echo "finishing ${image}"
 
 if [ "${image}" != "" ]; then
   kpartx -d ${device}
+  dmsetup mknodes
   losetup -d ${device}
   echo "created image ${image}"
 fi

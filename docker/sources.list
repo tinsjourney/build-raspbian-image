@@ -1,0 +1,2 @@
+deb http://unxprddeb01.fr.world.socgen/ftp2.fr.debian.org/debian/ stable main contrib non-free
+deb http://unxprddeb01.fr.world.socgen/security.debian.org/debian-security/ stable/updates main contrib non-free
