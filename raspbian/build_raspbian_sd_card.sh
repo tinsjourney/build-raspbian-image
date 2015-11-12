@@ -164,7 +164,7 @@ mkdir -p ${rootfs}/usr/src/delivery
 
 mount -t proc none ${rootfs}/proc
 mount -t sysfs none ${rootfs}/sys
-mount -o bind /dev ${rootfs}/dev
+#mount -o bind /dev ${rootfs}/dev
 mount -o bind /dev/pts ${rootfs}/dev/pts
 mount -o bind ${delivery_path} ${rootfs}/usr/src/delivery
 
@@ -225,7 +225,7 @@ cd /usr/src/delivery
 apt-get -qq update
 DEBIAN_FRONTEND=noninteractive apt-get -qq -o Dpkg::Options::=\"--force-confnew\" -y install git-core binutils ca-certificates curl
 #wget --continue https://raw.github.com/Hexxeh/rpi-update/master/rpi-update -O /usr/bin/rpi-update
-wget --continue https://sgithub.fr.world.socgen/raw/GTSMKTSSB/rpi-update/master/rpi-update -O /usr/bin/rpi-update
+wget --no-check-certificate --continue https://sgithub.fr.world.socgen/raw/GTSMKTSSB/rpi-update/master/rpi-update -O /usr/bin/rpi-update
 chmod +x /usr/bin/rpi-update
 mkdir -p /lib/modules/3.1.9+
 touch /boot/start.elf
@@ -246,7 +246,7 @@ rm -f /third-stage
 chmod +x third-stage
 LANG=C chroot ${rootfs} /third-stage
 
-echo "deb ${deb_mirror} ${deb_release} main contrib non-free
+echo "deb ${deb_local_mirror} ${deb_release} main contrib non-free
 " > etc/apt/sources.list
 
 echo "#!/bin/bash
