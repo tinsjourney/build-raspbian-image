@@ -57,8 +57,9 @@
 # you need at least
 # apt-get install binfmt-support qemu qemu-user-static debootstrap kpartx lvm2 dosfstools
 
-deb_mirror="http://archive.raspbian.org/raspbian"
-deb_local_mirror="http://unxprddeb01.fr.world.socgen/archive.raspbian.com/raspbian/"
+deb_mirror="http://archive.raspbian.org"
+#deb_local_mirror="http://unxprddeb01.fr.world.socgen/archive.raspbian.com"
+deb_local_mirror="http://192.168.0.19/archive.raspbian.org"
 
 if [ ${EUID} -ne 0 ]; then
   echo "this tool must be run as root"
@@ -76,7 +77,7 @@ if [ "${deb_local_mirror}" == "" ]; then
 fi
 
 bootsize="64M"
-deb_release="stable"
+deb_release="jessie"
 keyboard_layout="fr-latin9"
 
 relative_path=`dirname $0`
@@ -131,9 +132,9 @@ if [ "${image}" != "" ]; then
   losetup -d ${device}
   device=`kpartx -va ${image} | sed -E 's/.*(loop[0-9])p.*/\1/g' | head -1`
   dmsetup mknodes || exit 1
-  device="/dev/mapper/${device}"
-  bootp=${device}p1
-  rootp=${device}p2
+  deviceloop="/dev/mapper/${device}"
+  bootp=${deviceloop}p1
+  rootp=${deviceloop}p2
 else
   if ! [ -b ${device}1 ]; then
     bootp=${device}p1
@@ -170,24 +171,27 @@ mount -o bind ${delivery_path} ${rootfs}/usr/src/delivery
 
 cd ${rootfs}
 
-wget -O /tmp/raspbian.public.key http://unxprddeb01.fr.world.socgen/archive.raspbian.com/raspbian.public.key
-gpg --import /tmp/raspbian.public.key
+#wget https://archive.raspbian.org/raspbian.public.key -O - | gpg --import -
+wget ${deb_local_mirror}/raspbian.public.key -O - | gpg --import -
 
 echo "### DeBootStraping ###"
-debootstrap --keyring /root/.gnupg/pubring.gpg --foreign --arch armhf ${deb_release} ${rootfs} ${deb_local_mirror}
+debootstrap --keyring /root/.gnupg/pubring.gpg --foreign --arch armhf ${deb_release} ${rootfs} ${deb_local_mirror}/raspbian
 cp /usr/bin/qemu-arm-static usr/bin/
 mkdir -p usr/share/keyrings
 cp /usr/share/keyrings/debian-archive-keyring.gpg usr/share/keyrings/
+echo "### DeBootStraping second stage ###"
 LANG=C chroot ${rootfs} /debootstrap/debootstrap --second-stage
+echo "### END DeBootStraping second stage ###"
 
 mount ${bootp} ${bootfs}
 
 echo "### Configuring APT ###"
-echo "deb ${deb_local_mirror} ${deb_release} main contrib non-free
+echo "deb ${deb_local_mirror}/raspbian ${deb_release} main contrib non-free
 " > etc/apt/sources.list
 
 echo "### Configuring CMDLINE ###"
 echo "+dwc_otg.lpm_enable=0 console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 cgroup-enable=memory swapaccount=1 elevator=deadline rootwait console=ttyAMA0,115200 kgdboc=ttyAMA0,115200" > boot/cmdline.txt
+echo "hdmi_force_hotplug=1" > boot/config.txt
 
 echo "### Configuring FSTAB ###"
 echo "proc            /proc	proc	defaults		0	0
@@ -224,8 +228,8 @@ rm -f /debconf.set
 cd /usr/src/delivery
 apt-get -qq update
 DEBIAN_FRONTEND=noninteractive apt-get -qq -o Dpkg::Options::=\"--force-confnew\" -y install git-core binutils ca-certificates curl
-#wget --continue https://raw.github.com/Hexxeh/rpi-update/master/rpi-update -O /usr/bin/rpi-update
-wget --no-check-certificate --continue https://sgithub.fr.world.socgen/raw/GTSMKTSSB/rpi-update/master/rpi-update -O /usr/bin/rpi-update
+wget --continue https://raw.github.com/Hexxeh/rpi-update/master/rpi-update -O /usr/bin/rpi-update
+#wget --no-check-certificate --continue https://github.fr.world.socgen/raw/GTSMKTSSB/rpi-update/master/rpi-update -O /usr/bin/rpi-update
 chmod +x /usr/bin/rpi-update
 mkdir -p /lib/modules/3.1.9+
 touch /boot/start.elf
@@ -246,7 +250,7 @@ rm -f /third-stage
 chmod +x third-stage
 LANG=C chroot ${rootfs} /third-stage
 
-echo "deb ${deb_local_mirror} ${deb_release} main contrib non-free
+echo "deb ${deb_local_mirror}/raspbian ${deb_release} main contrib non-free
 " > etc/apt/sources.list
 
 echo "#!/bin/bash
@@ -285,9 +289,9 @@ dmsetup remove_all
 echo "finishing ${image}"
 
 if [ "${image}" != "" ]; then
-  kpartx -d ${device}
+  kpartx -d /dev/${device}
   dmsetup mknodes
-  losetup -d ${device}
+  losetup -d /dev/${device}
   echo "created image ${image}"
 fi
 
